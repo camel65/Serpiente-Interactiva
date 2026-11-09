@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Serpiente Interactiva Neón</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background-color: #000000;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            cursor: default;
+        }
+
+        /* Botón de Inicio Centrado */
+        #btn-inicio {
+            padding: 18px 45px;
+            font-size: 1.6rem;
+            color: #ffffff;
+            background: transparent;
+            border: 2px solid #39ff14;
+            border-radius: 50px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 0 25px rgba(57, 255, 20, 0.4);
+            z-index: 10;
+        }
+
+        #btn-inicio:hover {
+            background-color: #39ff14;
+            color: #000000;
+            box-shadow: 0 0 35px rgba(57, 255, 20, 0.9);
+            transform: scale(1.08);
+        }
+
+        /* Controles Flotantes Superior Derecha */
+        .controles {
+            display: none;
+            position: fixed;
+            top: 25px;
+            right: 25px;
+            gap: 12px;
+            z-index: 20;
+        }
+
+        .btn-control {
+            padding: 10px 22px;
+            font-size: 0.95rem;
+            color: #ffffff;
+            background: rgba(0, 0, 0, 0.8);
+            border: 1px solid rgba(57, 255, 20, 0.5);
+            border-radius: 30px;
+            backdrop-filter: blur(5px);
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .btn-control:hover {
+            background: #39ff14;
+            color: #000000;
+            transform: scale(1.05);
+            box-shadow: 0 0 15px rgba(57, 255, 20, 0.6);
+        }
+
+        #btn-salir:hover {
+            background: rgba(255, 0, 85, 0.9);
+            border-color: #ff0055;
+            color: #ffffff;
+            box-shadow: 0 0 15px rgba(255, 0, 85, 0.8);
+        }
+
+        /* Contenedor del Lienzo */
+        #canvas-container {
+            display: none;
+            position: absolute;
+            width: 100%;
+            height: 100%;
+        }
+
+        canvas {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- CAMBIA AQUÍ LA RUTA A TU ARCHIVO DE AUDIO -->
+    <audio id="miMusica" src="musica44.mp3" preload="auto" loop></audio>
+
+    <!-- Botón de Inicio -->
+    <button id="btn-inicio">Inicio</button>
+
+    <!-- Controles flotantes -->
+    <div class="controles" id="panel-controles">
+        <button class="btn-control" id="btn-audio">🔊 Sonido: ON</button>
+        <button class="btn-control" id="btn-salir">Salir</button>
+    </div>
+
+    <!-- Contenedor del lienzo -->
+    <div id="canvas-container">
+        <canvas id="snakeCanvas"></canvas>
+    </div>
+
+    <script>
+        const btnInicio = document.getElementById('btn-inicio');
+        const btnSalir = document.getElementById('btn-salir');
+        const btnAudio = document.getElementById('btn-audio');
+        const panelControles = document.getElementById('panel-controles');
+        const canvasContainer = document.getElementById('canvas-container');
+        const canvas = document.getElementById('snakeCanvas');
+        const ctx = canvas.getContext('2d');
+        const audioElement = document.getElementById('miMusica');
+
+        let animacionId = null;
+        let activo = false;
+        let tiempoInicio = 0;
+
+        // Posición objetivo (del cursor o toque)
+        let targetX = 0;
+        let targetY = 0;
+
+        // Configuración de la Serpiente
+        const NUM_SEGMENTOS = 40;
+        const DISTANCIA_SEGMENTO = 12;
+        let segmentos = [];
+
+        // Partículas energeticas al interactuar / comer orbes
+        let orbes = [];
+        let particulas = [];
+
+        function ajustarCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+
+        window.addEventListener('resize', () => {
+            if (activo) ajustarCanvas();
+        });
+
+        // Eventos de interacción (Mouse y Touch)
+        window.addEventListener('mousemove', (e) => {
+            if (activo) {
+                targetX = e.clientX;
+                targetY = e.clientY;
+            }
+        });
+
+        window.addEventListener('touchmove', (e) => {
+            if (activo && e.touches.length > 0) {
+                targetX = e.touches[0].clientX;
+                targetY = e.touches[0].clientY;
+            }
+        });
+
+        window.addEventListener('click', (e) => {
+            if (activo && e.target.tagName !== 'BUTTON') {
+                generarExplosion(e.clientX, e.clientY);
+            }
+        });
+
+        btnAudio.addEventListener('click', (e) => {
+            e.stopPropagation();
+            audioElement.muted = !audioElement.muted;
+            btnAudio.textContent = audioElement.muted ? "🔇 Sonido: OFF" : "🔊 Sonido: ON";
+        });
+
+        btnInicio.addEventListener('click', () => {
+            btnInicio.style.display = 'none';
+            panelControles.style.display = 'flex';
+            canvasContainer.style.display = 'block';
+
+            ajustarCanvas();
+            inicializarJuego();
+            activo = true;
+
+            audioElement.currentTime = 0;
+            audioElement.muted = false;
+            btnAudio.textContent = "🔊 Sonido: ON";
+            audioElement.play().catch(err => console.log(err));
+
+            iniciarAnimacion();
+        });
+
+        btnSalir.addEventListener('click', (e) => {
+            e.stopPropagation();
+            activo = false;
+            if (animacionId) cancelAnimationFrame(animacionId);
+
+            audioElement.pause();
+            audioElement.currentTime = 0;
+
+            canvasContainer.style.display = 'none';
+            panelControles.style.display = 'none';
+            btnInicio.style.display = 'block';
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        });
+
+        function inicializarJuego() {
+            tiempoInicio = Date.now();
+            const cx = canvas.width / 2;
+            const cy = canvas.height / 2;
+            targetX = cx;
+            targetY = cy;
+
+            segmentos = [];
+            for (let i = 0; i < NUM_SEGMENTOS; i++) {
+                segmentos.push({ x: cx, y: cy + i * DISTANCIA_SEGMENTO });
+            }
+
+            // Crear orbes luminosos flotantes
+            orbes = [];
+            for (let i = 0; i < 6; i++) {
+                crearOrbe();
+            }
+
+            particulas = [];
+        }
+
+        function crearOrbe() {
+            const cx = canvas.width / 2;
+            const cy = canvas.height / 2;
+            const radioCirculo = Math.min(canvas.width, canvas.height) * 0.35;
+            
+            // Generar orbes dentro del marco circular
+            const ang = Math.random() * Math.PI * 2;
+            const r = Math.random() * (radioCirculo - 30);
+
+            orbes.push({
+                x: cx + Math.cos(ang) * r,
+                y: cy + Math.sin(ang) * r,
+                radio: 7 + Math.random() * 5,
+                hue: Math.floor(Math.random() * 360)
+            });
+        }
+
+        function generarExplosion(x, y, hue = 120) {
+            for (let i = 0; i < 18; i++) {
+                const ang = Math.random() * Math.PI * 2;
+                const vel = 2 + Math.random() * 5;
+                particulas.push({
+                    x: x,
+                    y: y,
+                    vx: Math.cos(ang) * vel,
+                    vy: Math.sin(ang) * vel,
+                    vida: 1.0,
+                    hue: hue
+                });
+            }
+        }
+
+        function iniciarAnimacion() {
+            if (!activo) return;
+
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            const ahora = Date.now();
+            const t = (ahora - tiempoInicio) * 0.001;
+            const cx = canvas.width / 2;
+            const cy = canvas.height / 2;
+            const radioCirculo = Math.min(canvas.width, canvas.height) * 0.38;
+
+            // 1. DIBUJAR MARCO CIRCULAR DE NEÓN
+            ctx.save();
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+            ctx.lineWidth = 2.5;
+            ctx.shadowBlur = 18;
+            ctx.shadowColor = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(cx, cy, radioCirculo, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.restore();
+
+            // Delimitar animación al círculo
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(cx, cy, radioCirculo - 2, 0, Math.PI * 2);
+            ctx.clip();
+
+            // 2. ACTUALIZAR CABEZA Y SEGMENTOS DE LA SERPIENTE (Física Kinematics)
+            const cabeza = segmentos[0];
+            const dx = targetX - cabeza.x;
+            const dy = targetY - cabeza.y;
+            cabeza.x += dx * 0.12;
+            cabeza.y += dy * 0.12;
+
+            for (let i = 1; i < segmentos.length; i++) {
+                const segActual = segmentos[i];
+                const segAnterior = segmentos[i - 1];
+
+                const segDx = segAnterior.x - segActual.x;
+                const segDy = segAnterior.y - segActual.y;
+                const dist = Math.sqrt(segDx * segDx + segDy * segDy);
+
+                if (dist > 0) {
+                    segActual.x = segAnterior.x - (segDx / dist) * DISTANCIA_SEGMENTO;
+                    segActual.y = segAnterior.y - (segDy / dist) * DISTANCIA_SEGMENTO;
+                }
+            }
+
+            // 3. DIBUJAR ORBES Y DETECTAR COLISIONES
+            for (let i = orbes.length - 1; i >= 0; i--) {
+                const o = orbes[i];
+                const odx = cabeza.x - o.x;
+                const ody = cabeza.y - o.y;
+                const odist = Math.sqrt(odx * odx + ody * ody);
+
+                // Colisión (la serpiente se come el orbe)
+                if (odist < o.radio + 10) {
+                    generarExplosion(o.x, o.y, o.hue);
+                    orbes.splice(i, 1);
+                    crearOrbe();
+                    continue;
+                }
+
+                // Dibujar orbe
+                ctx.save();
+                ctx.fillStyle = `hsl(${o.hue}, 100%, 65%)`;
+                ctx.shadowBlur = 15;
+                ctx.shadowColor = `hsl(${o.hue}, 100%, 50%)`;
+                ctx.beginPath();
+                ctx.arc(o.x, o.y, o.radio + Math.sin(t * 4 + i) * 1.5, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            }
+
+            // 4. DIBUJAR CUERPO Y CABEZA DE LA SERPIENTE MULTICOLOR
+            ctx.save();
+            ctx.lineWidth = 3;
+
+            for (let i = segmentos.length - 1; i >= 0; i--) {
+                const seg = segmentos[i];
+                const ratio = i / segmentos.length;
+                const radioSeg = 12 * (1 - ratio * 0.65);
+                const hue = (t * 40 + i * 8) % 360;
+
+                ctx.fillStyle = `hsl(${hue}, 100%, 60%)`;
+                ctx.strokeStyle = '#ffffff';
+                ctx.shadowBlur = 12;
+                ctx.shadowColor = `hsl(${hue}, 100%, 50%)`;
+
+                ctx.beginPath();
+                ctx.arc(seg.x, seg.y, Math.max(3, radioSeg), 0, Math.PI * 2);
+                ctx.fill();
+                ctx.stroke();
+
+                // Ojos en la cabeza
+                if (i === 0) {
+                    ctx.fillStyle = '#ffffff';
+                    ctx.shadowBlur = 10;
+                    ctx.shadowColor = '#ffffff';
+                    ctx.beginPath();
+                    ctx.arc(seg.x - 4, seg.y - 4, 3, 0, Math.PI * 2);
+                    ctx.arc(seg.x + 4, seg.y - 4, 3, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+            ctx.restore();
+
+            // 5. RENDERIZAR PARTICULAS DE EXPLOSIÓN
+            ctx.save();
+            for (let i = particulas.length - 1; i >= 0; i--) {
+                const p = particulas[i];
+                p.x += p.vx;
+                p.y += p.vy;
+                p.vida -= 0.03;
+
+                if (p.vida <= 0) {
+                    particulas.splice(i, 1);
+                    continue;
+                }
+
+                ctx.globalAlpha = p.vida;
+                ctx.fillStyle = `hsl(${p.hue}, 100%, 65%)`;
+                ctx.shadowBlur = 10;
+                ctx.shadowColor = `hsl(${p.hue}, 100%, 50%)`;
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            ctx.restore();
+
+            ctx.restore(); // Fin del clip circular
+
+            animacionId = requestAnimationFrame(iniciarAnimacion);
+        }
+    </script>
+</body>
+</html>
